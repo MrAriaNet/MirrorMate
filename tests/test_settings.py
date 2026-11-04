@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from mirrormate.errors import UsageError
-from mirrormate.platform import UserContext
+from mirrormate.platform import current_uid, current_gid, UserContext
 from mirrormate.settings import TuiSettings, load_settings, save_settings, settings_path
 
 
@@ -15,7 +15,7 @@ class SettingsTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.home = Path(self.temporary.name) / "home/tester"
         self.home.mkdir(parents=True)
-        self.user = UserContext("tester", os.getuid(), os.getgid(), self.home)
+        self.user = UserContext("tester", current_uid(), current_gid(), self.home)
 
     def test_missing_settings_use_safe_defaults(self):
         settings = load_settings(self.user)

@@ -4,13 +4,13 @@ import difflib
 from pathlib import Path
 from typing import Any
 
-from .adapters import AptAdapter, DockerAdapter, GoAdapter, NpmAdapter, PythonAdapter
+from .adapters import AptAdapter, DockerAdapter, GoAdapter, HomebrewAdapter, NpmAdapter, PythonAdapter
 from .adapters.base import Adapter
 from .backup import create_snapshot, restore_snapshot
 from .errors import UsageError
 from .io import atomic_write, capture_file, restore_file
 from .models import ChangePlan, DistroInfo, Mirror
-from .platform import UserContext, detect_distro, ensure_supported, require_root
+from .platform import UserContext, detect_distro, ensure_supported, require_root, ensure_category_supported
 from .runner import CommandRunner
 
 
@@ -20,6 +20,7 @@ ADAPTERS: dict[str, type[Adapter]] = {
     "npm": NpmAdapter,
     "go": GoAdapter,
     "docker": DockerAdapter,
+    "homebrew": HomebrewAdapter,
 }
 
 
@@ -45,6 +46,7 @@ class MirrorService:
         return self._distro
 
     def adapter(self, category: str) -> Adapter:
+        ensure_category_supported(category)
         adapter_type = ADAPTERS.get(category)
         if adapter_type is None:
             raise UsageError(f"Unsupported mirror type: {category}")

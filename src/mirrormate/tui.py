@@ -22,6 +22,7 @@ from .catalog import (
 )
 from .errors import MirrorMateError
 from .models import BenchmarkResult, MIRROR_TYPES, Mirror
+from .platform import available_categories, is_root
 from .service import MirrorService
 from .settings import (
     ALLOWED_ATTEMPTS,
@@ -41,6 +42,7 @@ CATEGORY_DETAILS = {
     "npm": ("NPM", "Node.js package registry"),
     "go": ("GO", "Go module proxy"),
     "docker": ("DOCKER", "Docker registry mirror"),
+    "homebrew": ("HOMEBREW", "macOS bottle and API mirrors"),
 }
 
 
@@ -503,7 +505,7 @@ class Tui:
             if not allow_insecure:
                 return
         adapter = self.service.adapter(mirror.type)
-        if adapter.requires_root and os.geteuid() != 0:
+        if adapter.requires_root and not is_root():
             args = ["set", mirror.type, "--mirror", mirror.id]
             if mirror.type == "apt" and mirror.distro:
                 args.extend(["--distro", mirror.distro])
@@ -700,6 +702,13 @@ class Tui:
                         entry.update(distro=distro, archive_url=archive, security_url=security)
                     else:
                         entry["url"] = self.prompt("Add mirror", "Mirror URL:")
+                        if category == "homebrew" and entry["url"]:
+                            entry["api_url"] = self.prompt(
+                                "Homebrew API", "API mirror URL (blank keeps current):"
+                            ) or None
+                            entry["probe_url"] = self.prompt(
+                                "Homebrew benchmark", "Bottle probe URL (optional; required for speed tests):"
+                            ) or None
                         if category == "docker" and str(entry["url"] or "").startswith("http://"):
                             entry["insecure"] = self.confirm(
                                 "Insecure mirror", "Mark this HTTP Docker registry as insecure?"
@@ -737,7 +746,7 @@ class Tui:
             if not self.confirm("Restore backup", f"Restore {selected}?"):
                 continue
             try:
-                if snapshot["category"] in {"apt", "docker"} and os.geteuid() != 0:
+                if snapshot["category"] in {"apt", "docker"} and not is_root():
                     success, detail = self._elevated(["backups", "restore", selected])
                     self.message("Restore", "Backup restored." if success else detail)
                 else:
@@ -748,11 +757,13 @@ class Tui:
 
     def status(self) -> None:
         lines = []
-        for category in MIRROR_TYPES:
+        for category in available_categories():
             try:
                 status = self.service.status(category)
                 if "url" in status:
                     value = status["url"] or "default"
+                    if category == "homebrew":
+                        value += f"\n         API: {status['api_url'] or 'default'}"
                 elif category == "docker":
                     value = ", ".join(status["registry_mirrors"]) or "Docker Hub default"
                 else:
@@ -768,6 +779,7 @@ class Tui:
             items = [
                 (category, f"{label:<10} {description}")
                 for category, (label, description) in CATEGORY_DETAILS.items()
+                if category in available_categories()
             ]
             items.extend(
                 [

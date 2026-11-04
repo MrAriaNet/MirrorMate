@@ -4,7 +4,15 @@
 
 # MirrorMate
 
-MirrorMate is a safe mirror switcher for APT, PyPI, NPM, Go, and Docker. It has a shared Python core, an automation-friendly CLI, and a lightweight curses TUI. The runtime uses only the Python standard library.
+[![CI](https://github.com/free-programmers/MirrorMate/actions/workflows/ci.yml/badge.svg)](https://github.com/free-programmers/MirrorMate/actions/workflows/ci.yml)
+[![GitHub release](https://img.shields.io/github/v/release/free-programmers/MirrorMate)](https://github.com/free-programmers/MirrorMate/releases)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/downloads/)
+
+MirrorMate is a safe mirror switcher for APT, PyPI, NPM, Go, Docker, and Homebrew. It has a shared Python core, an automation-friendly CLI, and a lightweight curses TUI. Linux and macOS use only the Python standard library at runtime; Windows also installs `windows-curses` for the TUI.
+
+**Version 2.1.0** adds macOS and Windows support, Homebrew mirrors, and platform
+managers for installation, updates, removal, and status. See the
+[changelog](CHANGELOG.md) and [2.1.0 release notes](.github/release-notes/v2.1.0.md).
 
 <p align="center">
   <img src="./docs/demo.gif" alt="MirrorMate TUI demo showing live mirror speed tests and theme selection" width="100%">
@@ -61,19 +69,180 @@ Officially tested distributions:
 
 Python 3.10 or newer is required.
 
+macOS supports the CLI and curses TUI for Python/PyPI, NPM, Go, and Homebrew, including
+benchmarking, dry runs, backups, and restore. APT and Docker configuration are
+Linux-only and are hidden from the macOS dashboard. On Mac, configure Docker
+registry mirrors in Docker Desktop **Settings > Docker Engine**, then select
+**Apply & restart**.
+
+Windows supports Python/PyPI, NPM, and Go mirror configuration, benchmarking,
+dry runs, backups, and restore. APT, Homebrew, and Docker daemon configuration
+are unavailable on Windows. Configure Docker Desktop through its own settings.
+The Windows TUI uses the automatically installed `windows-curses` package.
+
+| Service | Ubuntu / Debian | macOS | Windows |
+| --- | --- | --- | --- |
+| Python / PyPI | Yes | Yes | Yes |
+| NPM | Yes | Yes | Yes |
+| Go | Yes | Yes | Yes |
+| APT | Yes | — | — |
+| Docker daemon | Yes | Configure in Docker Desktop | Configure in Docker Desktop |
+| Homebrew bottles and API | — | Yes | — |
+
+CI targets the Ubuntu/Debian releases above, macOS with Python 3.10, and Windows
+with Python 3.12. Other Python 3.10+ versions require compatible Windows curses
+wheels when installing on Windows.
+
 ## Installation
 
 ### Installer
 
-The installer downloads the latest release package, verifies its SHA-256 checksum, and installs it through APT:
+Install on macOS or Ubuntu/Debian with one command:
 
 ```bash
-curl -fsSLO https://raw.githubusercontent.com/free-programmers/MirrorMate/main/install.sh
-chmod +x install.sh
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/free-programmers/MirrorMate/main/install.sh | sudo bash
 ```
 
-Review downloaded installation scripts before running them. `wget` is also supported when `curl` is unavailable.
+On Windows, open **PowerShell as Administrator** and run:
+
+```powershell
+& ([scriptblock]::Create((Invoke-RestMethod https://raw.githubusercontent.com/free-programmers/MirrorMate/main/manager.ps1)))
+```
+
+The installer selects `manager-mac.sh` or `manager-linux.sh` automatically.
+All three managers require root/Administrator privileges and exit with an
+actionable message when privileges are missing. They do not open elevation prompts.
+Run the installed CLI as your normal user for Python, NPM, Go, and Homebrew settings.
+
+On Linux, the manager downloads the latest `.deb`, verifies its SHA-256 checksum,
+and installs through APT. On macOS and Windows, Python 3.10+ with venv and pip must
+already be installed; the manager installs the current `main` source archive in
+an isolated, machine-wide environment. It does not install Python or Homebrew.
+On Windows, reopen the terminal after installation to pick up the PATH change.
+
+| Manager | Installation location | Actions |
+| --- | --- | --- |
+| `manager-linux.sh` | Debian package | `install`, `update`, `uninstall`, `status` |
+| `manager-mac.sh` | `/Library/Application Support/MirrorMate/venv`, command in `/usr/local/bin` | same |
+| `manager.ps1` | `%ProgramFiles%\MirrorMate\venv`, Scripts directory added to machine PATH | same |
+
+From a checkout, manage the installation with:
+
+```bash
+sudo bash manager-mac.sh update    # macOS
+sudo bash manager-linux.sh update  # Ubuntu/Debian
+```
+
+```powershell
+.\manager.ps1 -Action update       # Administrator PowerShell
+```
+
+Replace `update` with `status` or `uninstall` as needed. Uninstall preserves user
+configuration, mirror choices, and backups. Mac and Windows managers only remove
+installations marked as managed by these scripts.
+
+The Unix bootstrap can also update or uninstall in one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/free-programmers/MirrorMate/main/install.sh | sudo bash -s -- update
+```
+
+`MIRRORMATE_REPOSITORY` selects a GitHub fork; `MIRRORMATE_RELEASE_URL` overrides
+the Linux release asset location. `MIRRORMATE_PYTHON` selects the Mac Python
+executable. User configuration remains separate from the machine-wide installation.
+
+### macOS from source
+
+With Python 3.10+ and git installed, use an isolated virtual environment:
+
+```bash
+git clone https://github.com/free-programmers/MirrorMate.git
+cd MirrorMate
+python3 -m venv .venv
+.venv/bin/python -m pip install .
+.venv/bin/mirrormate
+```
+
+Alternatively, with pipx installed, run `pipx install .` from the checkout and
+then `mirrormate` (run `pipx ensurepath` and reopen your terminal if necessary).
+Use `mirrormate status --json` to inspect the managed files.
+
+On macOS, Go uses `~/Library/Application Support/go/env`; NPM uses `~/.npmrc`.
+Pip uses `~/Library/Application Support/pip/pip.conf` when its parent directory
+exists, otherwise `~/.config/pip/pip.conf`. MirrorMate also honors `GOENV` and
+`NPM_CONFIG_USERCONFIG`/`npm_config_userconfig`. `GOENV=off` produces an error.
+Recent pip versions also use `XDG_DATA_HOME` on macOS; MirrorMate follows that
+directory when its `pip` subdirectory exists.
+
+These are user configuration changes. Environment variables such as
+`PIP_INDEX_URL`, `GOPROXY`, or `npm_config_registry`, pip virtual environment
+configuration, and `PIP_CONFIG_FILE` can override them. See the
+[pip configuration reference](https://pip.pypa.io/en/stable/topics/configuration/)
+and [Go configuration implementation](https://go.dev/src/cmd/go/internal/cfg/cfg.go).
+MirrorMate settings, catalogs, and user backups retain the paths documented below
+on both Linux and macOS.
+
+### Windows from source
+
+With Python 3.10+ installed, a per-user development environment also works:
+
+```powershell
+git clone https://github.com/free-programmers/MirrorMate.git
+cd MirrorMate
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install .
+.\.venv\Scripts\mirrormate.exe status --json
+.\.venv\Scripts\mirrormate.exe
+```
+
+Windows pip settings use `%APPDATA%\pip\pip.ini`, Go uses
+`%APPDATA%\go\env`, and NPM uses `%USERPROFILE%\.npmrc`. `GOENV` and
+`NPM_CONFIG_USERCONFIG` overrides are honored. MirrorMate's own settings and catalog
+use `%USERPROFILE%\.config\mirrormate`, and user backups use
+`%USERPROFILE%\.local\state\mirrormate\backups`. System catalogs use
+`%PROGRAMDATA%\MirrorMate\catalog.json` and require Administrator privileges to edit.
+
+### Homebrew mirrors on macOS
+
+The **HOMEBREW** dashboard category manages bottle downloads and an optional API
+mirror. Changes are written to Homebrew's per-user `~/.homebrew/brew.env`, or
+`$XDG_CONFIG_HOME/homebrew/brew.env` when set (`HOMEBREW_XDG_CONFIG_HOME` is also
+honored as a fallback). No sudo or shell startup edits are needed; settings apply
+to the next `brew` command. Install Homebrew separately if it is not installed.
+
+Preview and apply a custom mirror (replace the example URLs with your provider's
+bottle and API endpoints):
+
+```bash
+mirrormate set homebrew --url https://mirror.example.com/homebrew-bottles \
+  --api-url https://mirror.example.com/homebrew-bottles/api --dry-run
+mirrormate set homebrew --url https://mirror.example.com/homebrew-bottles \
+  --api-url https://mirror.example.com/homebrew-bottles/api --backup
+mirrormate status homebrew --json
+```
+
+Omitting `--api-url` preserves the existing API setting. To select Homebrew's
+official bottle and API endpoints again:
+
+```bash
+mirrormate set homebrew --mirror homebrew-official --backup
+```
+
+Custom mirrors can be saved with `mirrormate catalog add homebrew --id my-brew
+--name "My Homebrew mirror" --url URL --api-url API_URL --probe-url BOTTLE_PROBE_URL`,
+or added through the TUI. Provide a real bottle endpoint as `--probe-url` to enable
+speed tests and `--fastest`; entries without a probe are reported as untested
+candidates with an error explaining the missing URL. If an API mirror is supplied,
+the benchmark also checks its `/formula/zlib.json` endpoint. The official bottle
+probe checks registry reachability and accepts its normal HTTP 401 authentication
+challenge; it does not verify a complete authenticated bottle download.
+
+Backups use the existing user snapshot directory and `backups restore ID` command.
+Unrelated `brew.env` settings are preserved. Homebrew Git remotes, taps, cask/source
+downloads, and artifact proxy settings are managed separately. In particular,
+`HOMEBREW_ARTIFACT_DOMAIN` or administrator policy can override the bottle choice;
+`status` reports the managed user file. Homebrew may fall back to official sources
+if a mirror is unavailable. See [Homebrew's environment settings](https://docs.brew.sh/Manpage#environment).
 
 ### Debian package
 
@@ -282,7 +451,7 @@ Docker registry mirrors are a setting of the host Docker daemon. Running `mirror
 | 2 | Invalid command, catalog, or unsupported platform |
 | 3 | No eligible or reachable mirror |
 | 4 | Configuration, validation, or command failure |
-| 77 | Root permission required |
+| 77 | Root or Administrator permission required |
 | 130 | Interrupted by the user |
 
 ## Development
@@ -291,6 +460,14 @@ Run the standard-library test suite:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
+```
+
+On Windows, install the package first so the TUI dependency is available:
+
+```powershell
+py -3 -m pip install .
+$env:PYTHONPATH = 'src'
+py -3 -m unittest discover -s tests -v
 ```
 
 Build the architecture-independent Debian package:
@@ -305,8 +482,16 @@ Regenerate the README screenshots, GIF, and video with the real TUI in a tempora
 PYTHONPATH=src python3 scripts/record-demo.py
 ```
 
-The CI matrix runs tests and package smoke checks on the supported Ubuntu and Debian releases.
+CI includes Windows tests, installed CLI checks, and PowerShell syntax validation.
+It also runs tests and installation smoke checks on macOS, plus tests and package
+smoke checks on the supported Ubuntu and Debian releases.
+
+Release tags must match the package version, for example `v2.1.0`. The release
+workflow tests Linux, macOS, and Windows before building the Debian package,
+Python wheel, and source distribution. It publishes those artifacts, checksums,
+and manager scripts using `.github/release-notes/v2.1.0.md` as the release body.
+Changing the version and pushing code alone does not publish a GitHub Release.
 
 ## License
 
-MirrorMate is released under the [MIT License](LICENSE).
+MirrorMate is released under the [GNU General Public License v3](LICENSE).

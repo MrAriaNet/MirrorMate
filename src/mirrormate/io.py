@@ -50,7 +50,7 @@ def atomic_write(
         missing_parents.append(cursor)
         cursor = cursor.parent
     path.parent.mkdir(parents=True, exist_ok=True)
-    if uid is not None or gid is not None:
+    if hasattr(os, "chown") and (uid is not None or gid is not None):
         for directory in reversed(missing_parents):
             os.chown(directory, -1 if uid is None else uid, -1 if gid is None else gid)
     fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
@@ -61,7 +61,7 @@ def atomic_write(
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temp_path, mode)
-        if uid is not None or gid is not None:
+        if hasattr(os, "chown") and (uid is not None or gid is not None):
             os.chown(temp_path, -1 if uid is None else uid, -1 if gid is None else gid)
         os.replace(temp_path, path)
     finally:

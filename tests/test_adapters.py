@@ -9,7 +9,7 @@ from mirrormate.adapters.docker import DockerAdapter
 from mirrormate.adapters.user_config import GoAdapter, NpmAdapter, PythonAdapter
 from mirrormate.errors import UsageError
 from mirrormate.models import DistroInfo, Mirror
-from mirrormate.platform import UserContext
+from mirrormate.platform import current_uid, current_gid, UserContext
 from mirrormate.runner import CommandRunner
 
 
@@ -20,7 +20,7 @@ class AdapterTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.home = self.root / "home/tester"
         self.home.mkdir(parents=True)
-        self.user = UserContext("tester", os.getuid(), os.getgid(), self.home)
+        self.user = UserContext("tester", current_uid(), current_gid(), self.home)
         self.runner = CommandRunner()
 
     def test_user_adapters_preserve_unrelated_settings(self):

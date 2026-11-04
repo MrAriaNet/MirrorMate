@@ -9,7 +9,7 @@ from typing import Callable, Iterable
 
 from .errors import MirrorMateError, PermissionDeniedError
 from .io import FileState, atomic_write, capture_file, restore_file, sha256_bytes
-from .platform import UserContext
+from .platform import UserContext, ensure_category_supported, is_macos, is_root, user_config_path
 
 
 def user_backup_root(user: UserContext) -> Path:
@@ -72,7 +72,7 @@ def create_snapshot(
         (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode(),
         mode=0o644 if category in {"apt", "docker"} else 0o600,
     )
-    if category not in {"apt", "docker"} and os.geteuid() == 0:
+    if category not in {"apt", "docker"} and is_root():
         for path in [destination, files_dir, *destination.rglob("*")]:
             try:
                 os.chown(path, user.uid, user.gid)
@@ -122,16 +122,20 @@ def _allowed_restore_path(category: str, path: Path, user: UserContext, root: Pa
             (root / "etc/docker/daemon.json").resolve(strict=False),
             (root / "var/lib/mirrormate/state.json").resolve(strict=False),
         }
-    allowed = {
-        "python": user.home / ".config/pip/pip.conf",
-        "npm": user.home / ".npmrc",
-        "go": user.home / ".config/go/env",
-    }.get(category)
-    return allowed is not None and resolved == allowed.resolve(strict=False)
+    if category not in {"python", "npm", "go", "homebrew"}:
+        return False
+    allowed = {user_config_path(category, user).resolve(strict=False)}
+    if is_macos() and category == "python":
+        # pip switches its user path when the Application Support directory appears.
+        allowed.update(path.resolve(strict=False) for path in (
+            user.home / ".config/pip/pip.conf",
+            user.home / "Library/Application Support/pip/pip.conf",
+        ))
+    return resolved in allowed
 
 
 def _find_manifest(identifier: str, user: UserContext, root: Path) -> Path:
-    if not identifier or "/" in identifier or identifier.startswith("."):
+    if not identifier or any(char in identifier for char in ("/", "\\", ":")) or identifier.startswith("."):
         raise MirrorMateError("Invalid backup id")
     for base in (user_backup_root(user), system_backup_root(root)):
         candidate = base / identifier / "manifest.json"
@@ -155,13 +159,14 @@ def restore_snapshot(
     if manifest.get("schema_version") != 1 or manifest.get("id") != identifier:
         raise MirrorMateError("Unsupported or invalid backup manifest")
     category = str(manifest.get("category"))
+    ensure_category_supported(category)
     system_root = system_backup_root(root).resolve(strict=False)
     manifest_is_system = system_root in manifest_path.resolve(strict=False).parents
     if category in {"apt", "docker"} and not manifest_is_system:
         raise MirrorMateError("System backups can only be restored from the protected system backup directory")
     if category not in {"apt", "docker"} and manifest_is_system:
         raise MirrorMateError("User backups cannot be restored from the system backup directory")
-    if category in {"apt", "docker"} and os.geteuid() != 0:
+    if category in {"apt", "docker"} and not is_root():
         raise PermissionDeniedError(f"Restoring {category} requires root; rerun with sudo")
     entries = manifest.get("files")
     if not isinstance(entries, list):
@@ -177,7 +182,8 @@ def restore_snapshot(
         content = b""
         if existed:
             stored = entry.get("stored")
-            if not isinstance(stored, str) or Path(stored).is_absolute() or ".." in Path(stored).parts:
+            if (not isinstance(stored, str) or Path(stored).is_absolute()
+                    or ".." in Path(stored).parts or "\\" in stored or ":" in stored):
                 raise MirrorMateError("Invalid stored path in backup manifest")
             content = (manifest_path.parent / stored).read_bytes()
             if sha256_bytes(content) != entry.get("sha256"):

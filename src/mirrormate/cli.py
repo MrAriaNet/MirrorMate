@@ -19,7 +19,7 @@ from .catalog import (
 )
 from .errors import MirrorMateError, UnavailableError, UsageError
 from .models import MIRROR_TYPES, Mirror
-from .platform import detect_distro, invoking_user
+from .platform import available_categories, detect_distro, invoking_user, ensure_category_supported
 from .service import MirrorService
 
 
@@ -56,6 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
     selection.add_argument("--url")
     selection.add_argument("--fastest", action="store_true")
     setting.add_argument("--security-url")
+    setting.add_argument("--api-url", help="Homebrew API mirror (with --url only)")
     setting.add_argument("--distro", choices=("ubuntu", "debian"))
     setting.add_argument("--backup", "--make-backup", dest="backup", action="store_true")
     setting.add_argument("--dry-run", action="store_true")
@@ -80,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     catalog_add.add_argument("--archive-url")
     catalog_add.add_argument("--security-url")
     catalog_add.add_argument("--probe-url")
+    catalog_add.add_argument("--api-url", help="Homebrew API mirror")
     catalog_add.add_argument("--insecure", action="store_true")
     catalog_add.add_argument("--system", action="store_true")
     catalog_add.add_argument("--replace", action="store_true")
@@ -156,6 +158,7 @@ def _benchmark(
         raise UnavailableError(f"No {mirror_type} mirrors are available")
     codename = None
     if mirror_type == "apt":
+        ensure_category_supported(mirror_type)
         distro = detect_distro()
         _check_requested_distro(requested_distro, distro.id)
         codename = distro.codename
@@ -181,6 +184,9 @@ def _print_benchmark(results: list[Any]) -> None:
 
 def _resolve_mirror(args: argparse.Namespace, mirrors: list[Mirror]) -> tuple[Mirror, list[Any] | None]:
     mirror_type = args.mirror_type
+    ensure_category_supported(mirror_type)
+    if args.api_url and (mirror_type != "homebrew" or not args.url):
+        raise UsageError("--api-url requires set homebrew --url")
     benchmark_results = None
     distro = detect_distro() if mirror_type == "apt" else None
     if distro:
@@ -212,6 +218,8 @@ def _resolve_mirror(args: argparse.Namespace, mirrors: list[Mirror]) -> tuple[Mi
             if args.security_url:
                 raise UsageError("--security-url is only valid for APT")
             entry["url"] = args.url
+            if mirror_type == "homebrew" and args.api_url:
+                entry["api_url"] = args.api_url
             if mirror_type == "docker" and args.allow_insecure:
                 entry["insecure"] = True
         return normalize_entry(entry, source="direct"), None
@@ -247,6 +255,7 @@ def _handle_catalog(args: argparse.Namespace, user: Any, mirrors: list[Mirror]) 
             "archive_url": args.archive_url,
             "security_url": args.security_url,
             "probe_url": args.probe_url,
+            "api_url": args.api_url,
             "insecure": args.insecure,
         }
         mirror = normalize_entry(entry)
@@ -299,18 +308,26 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "tui":
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise UsageError("TUI mode requires an interactive terminal")
-        from .tui import run_tui
+        try:
+            from .tui import run_tui
+        except ImportError as exc:
+            raise UsageError(
+                "TUI support is unavailable; on Windows install windows-curses with your MirrorMate Python. "
+                "CLI commands such as status and set remain available."
+            ) from exc
 
         return run_tui(service)
     if args.command == "list":
-        selected = _eligible(mirrors, args.mirror_type, args.distro) if args.mirror_type else mirrors
+        selected = _eligible(mirrors, args.mirror_type, args.distro) if args.mirror_type else [
+            mirror for mirror in mirrors if mirror.type in available_categories()
+        ]
         if args.json:
             _json([item.to_dict() for item in selected])
         else:
             _mirror_rows(selected)
         return 0
     if args.command == "status":
-        categories = [args.mirror_type] if args.mirror_type else list(MIRROR_TYPES)
+        categories = [args.mirror_type] if args.mirror_type else available_categories()
         statuses = [service.status(category) for category in categories]
         if args.json:
             _json(statuses[0] if args.mirror_type else statuses)

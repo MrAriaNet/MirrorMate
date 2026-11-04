@@ -14,14 +14,14 @@ from mirrormate.catalog import (
     remove_custom_mirror,
 )
 from mirrormate.errors import CatalogError
-from mirrormate.platform import UserContext
+from mirrormate.platform import current_uid, current_gid, UserContext
 
 
 class CatalogTests(unittest.TestCase):
     def test_builtin_catalog_contains_only_official_sources(self):
         mirrors = read_catalog(builtin_catalog_path(), "builtin")
         self.assertEqual({item.source for item in mirrors}, {"builtin"})
-        self.assertEqual({item.type for item in mirrors}, {"apt", "python", "npm", "go", "docker"})
+        self.assertEqual({item.type for item in mirrors}, {"apt", "python", "npm", "go", "docker", "homebrew"})
         self.assertTrue(all("official" in item.name.lower() or item.default for item in mirrors))
 
     def test_current_legacy_catalog_is_importable(self):
@@ -41,7 +41,7 @@ class CatalogTests(unittest.TestCase):
     def test_mutate_and_remove_user_catalog(self):
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
-            user = UserContext("tester", os.getuid(), os.getgid(), home)
+            user = UserContext("tester", current_uid(), current_gid(), home)
             mirror = normalize_entry(
                 {"id": "custom-pypi", "type": "python", "name": "Custom", "url": "https://pypi.example/simple"}
             )
@@ -56,7 +56,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_builtin_ids_cannot_be_replaced(self):
         with tempfile.TemporaryDirectory() as temporary:
-            user = UserContext("tester", os.getuid(), os.getgid(), Path(temporary))
+            user = UserContext("tester", current_uid(), current_gid(), Path(temporary))
             mirror = normalize_entry(
                 {"id": "pypi-official", "type": "python", "name": "Fake", "url": "https://fake.example"}
             )

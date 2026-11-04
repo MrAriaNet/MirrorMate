@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .errors import MirrorMateError
-from .platform import UserContext
+from .platform import UserContext, is_root
 
 
 class CommandRunner:
@@ -33,7 +33,7 @@ class CommandRunner:
             env["HOME"] = str(user.home)
             env["USER"] = user.name
             env["LOGNAME"] = user.name
-            if os.geteuid() == 0 and user.uid != 0:
+            if is_root() and user.uid is not None and user.uid != 0:
                 kwargs.update(user=user.uid, group=user.gid, extra_groups=[])
         process = subprocess.run(**kwargs)  # type: ignore[arg-type]
         if check and process.returncode != 0:

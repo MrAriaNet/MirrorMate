@@ -1,0 +1,5 @@
+include CHANGELOG.md
+include install.sh
+include manager-mac.sh
+include manager-linux.sh
+include manager.ps1

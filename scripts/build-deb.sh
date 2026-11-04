@@ -27,6 +27,7 @@ find "$PACKAGE_ROOT/usr/lib/python3/dist-packages/mirrormate" -type d -exec chmo
 find "$PACKAGE_ROOT/usr/lib/python3/dist-packages/mirrormate" -type f -exec chmod 0644 {} +
 install -m 0755 "$PROJECT_DIR/packaging/debian/mirrormate" "$PACKAGE_ROOT/usr/bin/mirrormate"
 install -m 0644 "$PROJECT_DIR/LICENSE" "$PACKAGE_ROOT/usr/share/doc/mirrormate/copyright"
+install -m 0644 "$PROJECT_DIR/CHANGELOG.md" "$PACKAGE_ROOT/usr/share/doc/mirrormate/changelog"
 
 dpkg-deb --root-owner-group --build "$PACKAGE_ROOT" "$OUTPUT_DIR/mirrormate_all.deb"
 cd "$OUTPUT_DIR"

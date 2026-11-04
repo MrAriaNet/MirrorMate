@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import configparser
 import io
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 from ..errors import UsageError
 from ..io import capture_file
 from ..models import ChangePlan, Mirror, PlannedFile
+from ..platform import user_config_path
 from .base import Adapter
 
 
@@ -39,7 +41,7 @@ class PythonAdapter(UserConfigAdapter):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.config_path = self.user.home / ".config/pip/pip.conf"
+        self.config_path = user_config_path(self.category, self.user)
 
     def plan(self, mirror: Mirror, **options: Any) -> ChangePlan:
         if mirror.type != self.category or not mirror.url:
@@ -98,7 +100,7 @@ class NpmAdapter(UserConfigAdapter):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.config_path = self.user.home / ".npmrc"
+        self.config_path = user_config_path(self.category, self.user)
 
     def plan(self, mirror: Mirror, **options: Any) -> ChangePlan:
         if mirror.type != self.category or not mirror.url:
@@ -124,7 +126,7 @@ class GoAdapter(UserConfigAdapter):
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self.config_path = self.user.home / ".config/go/env"
+        self.config_path = user_config_path(self.category, self.user)
 
     def plan(self, mirror: Mirror, **options: Any) -> ChangePlan:
         if mirror.type != self.category or not mirror.url:
@@ -142,4 +144,53 @@ class GoAdapter(UserConfigAdapter):
             "type": self.category,
             "path": str(self.config_path),
             "url": _read_assignment(self._read(), "GOPROXY"),
+        }
+
+
+class HomebrewAdapter(UserConfigAdapter):
+    category = "homebrew"
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.config_path = user_config_path(self.category, self.user)
+
+    @staticmethod
+    def _set(content: str, key: str, value: str) -> str:
+        # brew.env is a literal environment file, not a shell script. Normalize
+        # every matching assignment to column zero so Homebrew loads it.
+        lines = content.splitlines(keepends=True)
+        pattern = re.compile(rf"^\s*(?:export\s+)?{re.escape(key)}\s*=")
+        lines = [line for line in lines if not pattern.match(line)]
+        current = "".join(lines)
+        separator = "" if not current or current.endswith("\n") else "\n"
+        return f"{current}{separator}{key}={value}\n"
+
+    def plan(self, mirror: Mirror, **options: Any) -> ChangePlan:
+        if mirror.type != self.category or not mirror.url:
+            raise UsageError("A Homebrew bottle mirror URL is required")
+        content = self._set(self._read(), "HOMEBREW_BOTTLE_DOMAIN", mirror.url)
+        summary = f"Set Homebrew bottle mirror to {mirror.url}"
+        if mirror.api_url:
+            content = self._set(content, "HOMEBREW_API_DOMAIN", mirror.api_url)
+            summary += f" and API mirror to {mirror.api_url}"
+        return ChangePlan(self.category, mirror, [self._planned_file(content)], summary)
+
+    def activate(self, plan: ChangePlan, **options: Any) -> list[str]:
+        warnings = []
+        if not self.runner.which("brew"):
+            warnings.append("Homebrew was not found on PATH; settings will apply once it is installed")
+        if os.environ.get("HOMEBREW_ARTIFACT_DOMAIN") or _read_assignment(
+            self._read(), "HOMEBREW_ARTIFACT_DOMAIN"
+        ):
+            warnings.append("HOMEBREW_ARTIFACT_DOMAIN can override the bottle mirror")
+        warnings.append("Settings apply to the next brew command; system policy may override user settings")
+        return warnings
+
+    def status(self) -> dict[str, Any]:
+        content = self._read()
+        return {
+            "type": self.category,
+            "path": str(self.config_path),
+            "url": _read_assignment(content, "HOMEBREW_BOTTLE_DOMAIN"),
+            "api_url": _read_assignment(content, "HOMEBREW_API_DOMAIN"),
         }

@@ -7,7 +7,7 @@ from unittest import mock
 from mirrormate.backup import create_snapshot, restore_snapshot
 from mirrormate.errors import MirrorMateError, PermissionDeniedError
 from mirrormate.models import DistroInfo, Mirror
-from mirrormate.platform import UserContext
+from mirrormate.platform import current_uid, current_gid, UserContext
 from mirrormate.service import MirrorService
 
 
@@ -21,12 +21,19 @@ class FailingRunner:
 
 class BackupAndServiceTests(unittest.TestCase):
     def setUp(self):
+        # These fixtures model a Linux host, even when the suite runs on macOS.
+        platform_patch = mock.patch("mirrormate.platform.sys.platform", "linux")
+        platform_patch.start()
+        self.addCleanup(platform_patch.stop)
+        environment = mock.patch.dict(os.environ, {}, clear=True)
+        environment.start()
+        self.addCleanup(environment.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.home = self.root / "home/tester"
         self.home.mkdir(parents=True)
-        self.user = UserContext("tester", os.getuid(), os.getgid(), self.home)
+        self.user = UserContext("tester", current_uid(), current_gid(), self.home)
 
     def test_restore_existing_user_file(self):
         path = self.home / ".npmrc"
@@ -67,7 +74,7 @@ class BackupAndServiceTests(unittest.TestCase):
             runner=FailingRunner(),
             distro=DistroInfo("ubuntu", "22.04", "jammy", "amd64"),
         )
-        with mock.patch("mirrormate.platform.os.geteuid", return_value=0):
+        with mock.patch("mirrormate.platform.os.geteuid", return_value=0, create=True):
             with self.assertRaises(MirrorMateError):
                 service.apply("apt", mirror)
         self.assertEqual(sources.read_text(), original)
@@ -86,7 +93,7 @@ class BackupAndServiceTests(unittest.TestCase):
     def test_system_apply_fails_with_permission_code_before_writing(self):
         mirror = Mirror("docker-new", "docker", "New", url="https://docker.example")
         service = MirrorService(catalog=[mirror], user=self.user, root=self.root)
-        with mock.patch("mirrormate.platform.os.geteuid", return_value=1000):
+        with mock.patch("mirrormate.platform.os.geteuid", return_value=1000, create=True):
             with self.assertRaises(PermissionDeniedError) as raised:
                 service.apply("docker", mirror)
         self.assertEqual(raised.exception.exit_code, 77)
@@ -106,7 +113,7 @@ class BackupAndServiceTests(unittest.TestCase):
             runner=FailingRunner(),
             distro=DistroInfo("ubuntu", "22.04", "jammy", "amd64"),
         )
-        with mock.patch("mirrormate.platform.os.geteuid", return_value=0):
+        with mock.patch("mirrormate.platform.os.geteuid", return_value=0, create=True):
             with self.assertRaises(MirrorMateError):
                 service.restore(identifier)
         self.assertEqual(sources.read_text(), current)

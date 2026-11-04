@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from .errors import CatalogError, PermissionDeniedError
 from .io import atomic_write
 from .models import DISTROS, MIRROR_TYPES, Mirror
-from .platform import UserContext
+from .platform import UserContext, is_admin, is_windows
 
 
 SCHEMA_VERSION = 1
@@ -26,6 +26,7 @@ LEGACY_TYPES = {
     "npm": "npm",
     "go": "go",
     "docker": "docker",
+    "homebrew": "homebrew",
 }
 
 
@@ -38,6 +39,8 @@ def user_catalog_path(user: UserContext) -> Path:
 
 
 def system_catalog_path(root: Path = Path("/")) -> Path:
+    if is_windows():
+        return Path(os.environ.get("PROGRAMDATA", "C:/ProgramData")) / "MirrorMate/catalog.json"
     return root / "etc/mirrormate/catalog.json"
 
 
@@ -96,6 +99,7 @@ def normalize_entry(entry: dict[str, Any], source: str = "custom", legacy: bool 
         "architectures",
         "insecure",
         "default",
+        "api_url",
     }
     unknown = sorted(set(entry) - allowed_fields)
     if unknown and not legacy:
@@ -144,6 +148,12 @@ def normalize_entry(entry: dict[str, Any], source: str = "custom", legacy: bool 
             raise CatalogError(f"Mirror {mirror_id} requires url")
         url = _valid_url(url, "url")
 
+    api_url = entry.get("api_url")
+    if api_url is not None:
+        if mirror_type != "homebrew" or not isinstance(api_url, str):
+            raise CatalogError("api_url must be a string and is only valid for Homebrew mirrors")
+        api_url = _valid_url(api_url, "api_url")
+
     probe_url = entry.get("probe_url")
     if probe_url is not None:
         if not isinstance(probe_url, str):
@@ -170,6 +180,7 @@ def normalize_entry(entry: dict[str, Any], source: str = "custom", legacy: bool 
         insecure=insecure,
         default=bool(entry.get("default", False)),
         source=source,
+        api_url=api_url,
     )
 
 
@@ -309,8 +320,8 @@ def mutate_custom_catalog(
     system: bool = False,
     replace: bool = False,
 ) -> Path:
-    if system and os.geteuid() != 0:
-        raise PermissionDeniedError("Changing the system catalog requires root")
+    if system and not is_admin():
+        raise PermissionDeniedError("Changing the system catalog requires root or Windows Administrator privileges")
     path = system_catalog_path(root) if system else user_catalog_path(user)
     source_name = "system" if system else "user"
     existing = read_catalog(path, source_name)
@@ -334,8 +345,8 @@ def remove_custom_mirror(
     root: Path = Path("/"),
     system: bool = False,
 ) -> Path:
-    if system and os.geteuid() != 0:
-        raise PermissionDeniedError("Changing the system catalog requires root")
+    if system and not is_admin():
+        raise PermissionDeniedError("Changing the system catalog requires root or Windows Administrator privileges")
     path = system_catalog_path(root) if system else user_catalog_path(user)
     source_name = "system" if system else "user"
     existing = read_catalog(path, source_name)

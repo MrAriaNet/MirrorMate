@@ -2,6 +2,14 @@
   "schema_version": 1,
   "mirrors": [
     {
+      "id": "homebrew-official",
+      "type": "homebrew",
+      "name": "Homebrew Official",
+      "url": "https://ghcr.io/v2/homebrew/core",
+      "api_url": "https://formulae.brew.sh/api",
+      "probe_url": "https://ghcr.io/v2/homebrew/core/zlib/tags/list"
+    },
+    {
       "id": "pypi-official",
       "type": "python",
       "name": "PyPI Official",

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-MIRROR_TYPES = ("apt", "python", "npm", "go", "docker")
+MIRROR_TYPES = ("apt", "python", "npm", "go", "docker", "homebrew")
 DISTROS = ("ubuntu", "debian")
 
 
@@ -23,6 +23,7 @@ class Mirror:
     insecure: bool = False
     default: bool = False
     source: str = "custom"
+    api_url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

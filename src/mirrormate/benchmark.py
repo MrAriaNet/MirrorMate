@@ -4,6 +4,7 @@ import statistics
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Iterable
 
@@ -13,6 +14,8 @@ from .models import BenchmarkResult, Mirror
 def probe_url(mirror: Mirror, codename: str | None = None) -> str:
     if mirror.probe_url:
         return mirror.probe_url
+    if mirror.type == "homebrew":
+        raise ValueError("Homebrew benchmarks require an explicit probe_url in the catalog entry")
     if mirror.type == "apt":
         if not mirror.archive_url or not codename:
             raise ValueError("APT benchmarks require archive_url and codename")
@@ -31,6 +34,8 @@ def probe_url(mirror: Mirror, codename: str | None = None) -> str:
 
 def probe_urls(mirror: Mirror, codename: str | None = None) -> list[str]:
     primary = probe_url(mirror, codename)
+    if mirror.type == "homebrew" and mirror.api_url:
+        return [primary, f"{mirror.api_url.rstrip('/')}/formula/zlib.json"]
     if mirror.type != "apt" or not mirror.security_url or not codename:
         return [primary]
     security = f"{mirror.security_url.rstrip('/')}/dists/{codename}-security/InRelease"
@@ -53,7 +58,11 @@ def http_probe(url: str, timeout: float, mirror_type: str) -> float:
                 raise OSError(f"HTTP {status}")
             response.read(16 * 1024)
     except urllib.error.HTTPError as exc:
-        if not (mirror_type == "docker" and exc.code == 401):
+        registry_challenge = mirror_type == "docker" or (
+            mirror_type == "homebrew" and urlparse(url).hostname == "ghcr.io"
+            and urlparse(url).path.startswith("/v2/homebrew/core/")
+        )
+        if not (registry_challenge and exc.code == 401):
             raise OSError(f"HTTP {exc.code}") from exc
         exc.close()
     return (time.perf_counter() - started) * 1000
@@ -71,7 +80,11 @@ def benchmark_one(
     timeout: float,
     probe: ProbeFunction = http_probe,
 ) -> BenchmarkResult:
-    urls = probe_urls(mirror, codename)
+    try:
+        urls = probe_urls(mirror, codename)
+    except ValueError as exc:
+        return BenchmarkResult(mirror.id, mirror.name, mirror.url or "", False, None,
+                               attempts, 0, str(exc))
     url = urls[0]
     timings = []
     error = None
