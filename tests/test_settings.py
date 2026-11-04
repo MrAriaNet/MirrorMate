@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,11 +25,15 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.benchmark_attempts, 3)
         self.assertEqual(settings.theme, "ocean")
 
-    def test_settings_are_saved_atomically_with_private_mode(self):
+    def test_settings_are_saved_with_platform_permissions(self):
         expected = TuiSettings(True, 5, 5.0, False, "violet")
         path = save_settings(expected, self.user)
         self.assertEqual(load_settings(self.user), expected)
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        if os.name == "nt":
+            # Windows chmod controls the read-only flag; access is governed by ACLs.
+            self.assertTrue(path.stat().st_mode & stat.S_IWRITE)
+        else:
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
     def test_invalid_settings_are_rejected(self):
         path = settings_path(self.user)
