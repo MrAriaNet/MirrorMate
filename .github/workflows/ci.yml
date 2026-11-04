@@ -34,6 +34,8 @@ jobs:
           if (($result | Out-String) -notmatch 'not installed|Administrator privileges required') {
             throw ($result | Out-String)
           }
+          # The nonzero manager status is expected; do not propagate it to the runner.
+          exit 0
       - name: Smoke test installed CLI and Windows adapters
         env:
           PYTHONPATH: ""
